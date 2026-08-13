@@ -24,6 +24,8 @@ body {
 }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+a { color: inherit; }
+a:focus-visible, button:focus-visible { outline: 3px solid rgba(108, 88, 217, .34); outline-offset: 3px; }
 
 .site-shell { min-height: 100vh; }
 .nav {
@@ -96,6 +98,7 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 .select-wrap select { border: 0; outline: 0; background: transparent; color: var(--ink); padding: 10px 4px; font-weight: 650; }
 .series-loading { color: var(--purple-dark); text-align: center; font-size: 13px; padding: 15px; }
 .series-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 17px 2px 5px; scrollbar-width: thin; }
+.limit-note { margin-top: 9px; color: var(--muted); font-size: 12px; text-align: right; }
 .series-tab { flex: 0 0 210px; display: flex; gap: 9px; align-items: center; background: white; border: 1px solid var(--line); padding: 7px; border-radius: 12px; }
 .series-tab img { width: 35px; height: 48px; border-radius: 6px; object-fit: cover; }
 .series-tab span { min-width: 0; font-size: 12px; font-weight: 680; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -108,17 +111,21 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 .cast-intro p { margin: 0; color: var(--muted); font-size: 13px; }
 .cast-list { display: grid; gap: 12px; }
 .actor-card { background: var(--card); border: 1px solid var(--line); border-radius: 17px; overflow: hidden; box-shadow: 0 3px 0 rgba(47,37,75,.03); }
-.actor-summary { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 62px minmax(160px, 1fr) minmax(170px, 1.2fr) auto; gap: 15px; align-items: center; padding: 13px 15px; color: var(--ink); text-align: left; }
+.actor-summary { width: 100%; background: transparent; display: grid; grid-template-columns: minmax(220px, 1fr) minmax(170px, 1.2fr) auto; gap: 15px; align-items: center; padding: 13px 15px; color: var(--ink); text-align: left; }
 .actor-summary:hover { background: #faf8ff; }
+.actor-profile { min-width: 0; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 15px; text-decoration: none; }
+.actor-profile:hover .actor-name, .current-role a:hover, .credit-char a:hover, .overlap-actor:hover .overlap-name, .role-detail a:hover { color: var(--purple-dark); text-decoration: underline; }
 .actor-photo { width: 62px; height: 62px; border-radius: 14px; object-fit: cover; background: #e7e4ec; }
 .actor-name { font-weight: 760; letter-spacing: -.015em; }
 .actor-language { margin-top: 4px; color: var(--muted); font-size: 12px; }
 .current-role { display: flex; align-items: center; gap: 10px; }
 .char-photo { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: #eee; }
-.current-role span { display: block; }
+.current-role > span { display: block; min-width: 0; }
 .current-role .role-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
 .current-role .role-name { font-size: 14px; font-weight: 650; }
-.expand-label { color: var(--purple-dark); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.current-role .role-name > span, .credit-char > span { display: inline; }
+.current-role a, .credit-char a, .role-detail a { text-decoration: none; }
+.expand-label { border: 0; background: transparent; padding: 10px 2px; color: var(--purple-dark); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .chevron { display: inline-block; margin-left: 8px; transition: transform .2s ease; }
 .chevron.open { transform: rotate(180deg); }
 
@@ -165,14 +172,16 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 .overlap-head p { color: var(--muted); font-size: 13px; }
 .overlap-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
 .overlap-card { display: grid; grid-template-columns: 58px 1fr; gap: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
-.overlap-card > img { width: 58px; height: 72px; border-radius: 12px; object-fit: cover; }
+.overlap-actor { grid-column: 1 / -1; min-width: 0; display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 12px; text-decoration: none; }
+.overlap-actor img { width: 58px; height: 72px; border-radius: 12px; object-fit: cover; }
 .overlap-name { font-weight: 760; align-self: center; }
 .role-pair { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .role-pair > div { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 9px; background: white; border: 1px solid #e5e1d9; border-radius: 10px; padding: 7px; min-width: 0; }
 .overlap-character { width: 48px; height: 62px; border-radius: 7px; object-fit: cover; object-position: center top; }
 .role-detail { min-width: 0; }
-.role-pair span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+.role-pair .role-detail > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10px; margin-bottom: 4px; }
 .role-pair strong { display: -webkit-box; overflow: hidden; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.role-pair .character-link-wrap { display: inline; }
 
 @media (max-width: 760px) {
   .nav { padding: 0 18px; }
@@ -187,10 +196,11 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
   .cover-stack { width: 72px; height: 99px; }
   .cover-stack img { width: 62px; height: 88px; }
   .filters { grid-column: 1 / -1; }
-  .actor-summary { grid-template-columns: 52px 1fr auto; }
+  .actor-summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .actor-profile { grid-template-columns: 52px minmax(0, 1fr); }
   .actor-photo { width: 52px; height: 52px; }
-  .current-role { grid-column: 2 / -1; }
-  .expand-label { grid-column: 3; grid-row: 1; font-size: 0; }
+  .current-role { grid-column: 1 / -1; }
+  .expand-label { grid-column: 2; grid-row: 1; font-size: 0; }
   .expand-label .chevron { font-size: 15px; }
   .credits { padding: 16px; }
   .credit-grid { grid-template-columns: 1fr; }
