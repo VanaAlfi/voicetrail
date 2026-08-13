@@ -68,7 +68,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
       response = await limitedFetch(query, variables);
     } catch {
       if (attempt < 2) { await delay(1200 * (attempt + 1)); continue; }
-      throw new Error("AniListâ€™s public API is temporarily unreachable. Please try again in a few minutes.");
+      throw new Error("AniList’s public API is temporarily unreachable. Please try again in a few minutes.");
     }
     const payload = await response.json().catch(() => ({ errors: [{ message: "AniList returned an unreadable response." }] }));
     const remaining = Number(response.headers.get("x-ratelimit-remaining"));
@@ -76,7 +76,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
     const resetAt = Number(response.headers.get("x-ratelimit-reset")) * 1000;
     if (Number.isFinite(remaining)) console.debug(`[VoiceTrail] AniList rate limit: ${remaining}/${Number.isFinite(limit) ? limit : "?"} remaining`);
     if (response.ok && !payload.errors) return payload.data as T;
-    if (response.status === 403) throw new Error("AniListâ€™s public API is temporarily unavailable. VoiceTrail will work again when AniList restores access.");
+    if (response.status === 403) throw new Error("AniList’s public API is temporarily unavailable. VoiceTrail will work again when AniList restores access.");
     if (response.status === 429 && attempt < 2) {
       const retryAfter = Number(response.headers.get("retry-after") || 0) * 1000;
       apiCooldownUntil = Math.max(apiCooldownUntil, retryAfter ? Date.now() + retryAfter : (resetAt > Date.now() ? resetAt + 250 : Date.now() + 60000));
@@ -238,48 +238,7 @@ export function VoiceTrail() {
         const details = await getAnimeBatch(nextIds, nextLanguage);
         for (const detail of details) {
           loaded.set(detail.id, detail);
-          for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.node.id)) queued.push(edge.node);
-        }
-      }
-      return [...loaded.values()].sort((a, b) => (a.startDate.year || 9999) - (b.startDate.year || 9999));
-    })();
-    franchiseCache.set(cacheKey, request);
-    try { return await request; }
-    catch (error) { franchiseCache.delete(cacheKey); throw error; }
-  }
-
-  async function loadFranchise(first: AnimeDetail, nextLanguage = language) {
-    setSeriesLoading(true);
-    setSeries(await collectFranchise(first, nextLanguage));
-    setSeriesLoading(false);
-  }
-
-  async function chooseAnime(anime: Anime) {
-    setLoadingAnime(true); setError(""); setResults([]); setCredits({}); setOpenActor(null);
-    try {
-      const detail = await getAnime(anime.id);
-      if (searchTarget === "compare") {
-        if (comparisons.length >= 1) { setError("You can compare two anime in total."); return; }
-        if (series[0]?.id === detail.id || comparisons.some((item) => item.root.id === detail.id)) { setError("That anime is already in this comparison."); return; }
-        const linked = scope === "series" ? await collectFranchise(detail) : [detail];
-        setComparisons((current) => [...current, { root: detail, series: linked }]); setView("overlap"); writeUrl(series[0]?.id, detail.id);
-      }
-      else { setSeries([detail]); setComparisons([]); setView("cast"); await loadFranchise(detail); writeUrl(detail.id); }
-      setQuery("");
-      window.setTimeout(() => document.getElementById("cast")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
-    } catch (err) { setError(err instanceof Error ? err.message : "Cast lookup failed."); setSeriesLoading(false); }
-    finally { setLoadingAnime(false); }
-  }
-
-  async function changeLanguage(next: string) {
-    setLanguage(next); setCredits({}); setOpenActor(null); setLoadingAnime(true);
-    try {
-      const primaryRequest = series[0] ? (async () => {
-        const root = await getAnime(series[0].id, next);
-        return scope === "series" ? collectFranchise(root, next) : [root];
-      })() : Promise.resolve<AnimeDetail[]>([]);
-      const comparisonRequest = Promise.all(comparisons.map(async (item) => {
-        const root = await getAnime(item.root.id, next);
+          for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.nod�]��G����ƭy�        const root = await getAnime(item.root.id, next);
         return { root, series: scope === "series" ? await collectFranchise(root, next) : [root] };
       }));
       const [refreshedPrimary, refreshed] = await Promise.all([primaryRequest, comparisonRequest]);
@@ -320,16 +279,16 @@ export function VoiceTrail() {
     <section className="hero"><div className="eyebrow">Follow every voice, across every role</div><h1>Where else have you<br />heard that <span className="accent">voice?</span></h1><p className="hero-copy">Explore complete voice-actor filmographies, roll an entire series into one cast, or compare two anime to find the actors they share.</p></section>
     <section className="search-wrap" aria-label="Anime search">
       {primary && <div className="search-mode"><button className={searchTarget === "primary" ? "active" : ""} onClick={() => setSearchTarget("primary")}>Choose anime</button><button className={searchTarget === "compare" ? "active" : ""} onClick={() => setSearchTarget("compare")} disabled={comparisons.length >= 1}>Add comparison ({comparisons.length + 1}/2)</button></div>}
-      <form className="search-box" onSubmit={search}><input aria-label="Anime title" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchTarget === "compare" ? "Search the anime to compareâ€¦" : "Try â€œFrierenâ€ or â€œMushoku Tenseiâ€"} autoComplete="off" /><button className="primary-btn" disabled={searching || loadingAnime}>{searching ? "Searchingâ€¦" : "Find anime"}</button></form>
-      {results.length > 0 && <div className="results-popover" role="listbox" aria-label="Anime matches">{results.map((anime) => <button className="result-row" key={anime.id} onClick={() => chooseAnime(anime)} role="option" aria-selected="false"><img src={anime.coverImage.medium || anime.coverImage.large} alt={`${title(anime)} cover`} loading="lazy" decoding="async" /><span><span className="result-title">{title(anime)}</span><span className="result-meta">{anime.seasonYear || anime.startDate.year || "Year unknown"} Â· {pretty(anime.format)}</span></span><span className="result-arrow">â†’</span></button>)}</div>}
+      <form className="search-box" onSubmit={search}><input aria-label="Anime title" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchTarget === "compare" ? "Search the anime to compare…" : "Try “Frieren” or “Mushoku Tensei”"} autoComplete="off" /><button className="primary-btn" disabled={searching || loadingAnime}>{searching ? "Searching…" : "Find anime"}</button></form>
+      {results.length > 0 && <div className="results-popover" role="listbox" aria-label="Anime matches">{results.map((anime) => <button className="result-row" key={anime.id} onClick={() => chooseAnime(anime)} role="option" aria-selected="false"><img src={anime.coverImage.medium || anime.coverImage.large} alt={`${title(anime)} cover`} loading="lazy" decoding="async" /><span><span className="result-title">{title(anime)}</span><span className="result-meta">{anime.seasonYear || anime.startDate.year || "Year unknown"} · {pretty(anime.format)}</span></span><span className="result-arrow">→</span></button>)}</div>}
       {error && <div className="error" role="alert">{error}</div>}
     </section>
 
-    {!primary ? <section className="empty-demo" aria-label="How it works"><div className="how-card"><span className="step">01</span><h3>Explore a whole series</h3><p>Merge connected seasons, OVAs, ONAs, specials, side stories, and spin-offs.</p></div><div className="how-card"><span className="step">02</span><h3>See every role</h3><p>Open an actorâ€™s complete anime filmography, from first credit to latest.</p></div><div className="how-card"><span className="step">03</span><h3>Compare two casts</h3><p>Find exactly which actors appear in both anime or franchises.</p></div></section> :
+    {!primary ? <section className="empty-demo" aria-label="How it works"><div className="how-card"><span className="step">01</span><h3>Explore a whole series</h3><p>Merge connected seasons, OVAs, ONAs, specials, side stories, and spin-offs.</p></div><div className="how-card"><span className="step">02</span><h3>See every role</h3><p>Open an actor’s complete anime filmography, from first credit to latest.</p></div><div className="how-card"><span className="step">03</span><h3>Compare two casts</h3><p>Find exactly which actors appear in both anime or franchises.</p></div></section> :
     <section className="workspace" id="cast">
-      <div className="selection-head"><div className="cover-stack">{activeSeries.slice(0, 3).reverse().map((anime) => <img src={anime.coverImage.large} alt={`${title(anime)} cover`} loading="lazy" decoding="async" key={anime.id} />)}</div><div><div className="selection-kicker">Exploring</div><h2>{title(primary)}</h2><div className="selection-meta">{scope === "series" ? `${series.length} connected anime Â· ${actors.length} unique voice actors` : `${primary.seasonYear || primary.startDate.year || "Year unknown"} Â· ${pretty(primary.format)} Â· ${actors.length} voice actors`}</div></div><div className="filters"><div className="select-wrap"><label htmlFor="scope">Scope</label><select id="scope" value={scope} onChange={(e) => changeScope(e.target.value as "entry" | "series")}><option value="series">Full series</option><option value="entry">This entry</option></select></div><div className="select-wrap"><label htmlFor="language">Dub</label><select id="language" value={language} onChange={(e) => changeLanguage(e.target.value)}><option value="JAPANESE">Japanese</option><option value="ENGLISH">English</option><option value="KOREAN">Korean</option><option value="FRENCH">French</option><option value="GERMAN">German</option><option value="SPANISH">Spanish</option><option value="PORTUGUESE">Portuguese</option></select></div></div></div>
-      {seriesLoading && <div className="series-loading">Linking seasons, OVAs, and related entriesâ€¦</div>}
-      {scope === "series" && series.length > 1 && <div className="series-tabs">{series.map((anime) => <div className="series-tab" key={anime.id}><img src={anime.coverImage.medium || anime.coverImage.large} alt={`${title(anime)} cover`} loading="lazy" decoding="async" /><span>{title(anime)}<small>{anime.startDate.year || "TBA"} Â· {pretty(anime.format)}</small></span></div>)}</div>}
+      <div className="selection-head"><div className="cover-stack">{activeSeries.slice(0, 3).reverse().map((anime) => <img src={anime.coverImage.large} alt={`${title(anime)} cover`} loading="lazy" decoding="async" key={anime.id} />)}</div><div><div className="selection-kicker">Exploring</div><h2>{title(primary)}</h2><div className="selection-meta">{scope === "series" ? `${series.length} connected anime · ${actors.length} unique voice actors` : `${primary.seasonYear || primary.startDate.year || "Year unknown"} · ${pretty(primary.format)} · ${actors.length} voice actors`}</div></div><div className="filters"><div className="select-wrap"><label htmlFor="scope">Scope</label><select id="scope" value={scope} onChange={(e) => changeScope(e.target.value as "entry" | "series")}><option value="series">Full series</option><option value="entry">This entry</option></select></div><div className="select-wrap"><label htmlFor="language">Dub</label><select id="language" value={language} onChange={(e) => changeLanguage(e.target.value)}><option value="JAPANESE">Japanese</option><option value="ENGLISH">English</option><option value="KOREAN">Korean</option><option value="FRENCH">French</option><option value="GERMAN">German</option><option value="SPANISH">Spanish</option><option value="PORTUGUESE">Portuguese</option></select></div></div></div>
+      {seriesLoading && <div className="series-loading">Linking seasons, OVAs, and related entries…</div>}
+      {scope === "series" && series.length > 1 && <div className="series-tabs">{series.map((anime) => <div className="series-tab" key={anime.id}><img src={anime.coverImage.medium || anime.coverImage.large} alt={`${title(anime)} cover`} loading="lazy" decoding="async" /><span>{title(anime)}<small>{anime.startDate.year || "TBA"} · {pretty(anime.format)}</small></span></div>)}</div>}
       {scope === "series" && series.length >= MAX_FRANCHISE_ENTRIES && <div className="limit-note">Showing the first {MAX_FRANCHISE_ENTRIES} connected entries to keep large franchises responsive.</div>}
       <div className="view-tabs"><button className={view === "cast" ? "active" : ""} onClick={() => setView("cast")}>Cast & filmographies</button><button className={view === "overlap" ? "active" : ""} onClick={() => { setView("overlap"); if (comparisons.length < 1) setSearchTarget("compare"); }}>Compare casts {comparisons.length > 0 && <span>{overlap.length}</span>}</button></div>
       {view === "overlap" ? <Comparison primary={primary} comparisons={comparisons} overlap={overlap} scope={scope} primaryCount={activeSeries.length} remove={() => { setComparisons([]); writeUrl(primary.id); }} addMore={() => { setSearchTarget("compare"); document.querySelector<HTMLInputElement>('[aria-label="Anime title"]')?.focus(); }} /> : <>
@@ -347,12 +306,12 @@ export function VoiceTrail() {
               </a>
               <span className="current-role">
                 <a href={characterUrl(current.character.id)} target="_blank" rel="noreferrer" aria-label={`${current.character.name.full} on AniList`}><img className="char-photo" src={current.character.image.large} alt={current.character.name.full} loading="lazy" decoding="async" /></a>
-                <span><span className="role-label">In this selection Â· {pretty(current.role)}</span><span className="role-name">{characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character.id)} target="_blank" rel="noreferrer">{character.name.full}</a></span>)}</span></span>
+                <span><span className="role-label">In this selection · {pretty(current.role)}</span><span className="role-name">{characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character.id)} target="_blank" rel="noreferrer">{character.name.full}</a></span>)}</span></span>
               </span>
-              <button className="expand-label" onClick={() => toggleActor(actor)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} all roles for ${actor.name.full}`}>All roles <span className={`chevron ${isOpen ? "open" : ""}`}>âŒ„</span></button>
+              <button className="expand-label" onClick={() => toggleActor(actor)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} all roles for ${actor.name.full}`}>All roles <span className={`chevron ${isOpen ? "open" : ""}`}>⌄</span></button>
             </div>
-            {isOpen && <div className="credits">{loadingActor === actor.id ? <div className="loading-row">Loading up to {MAX_FILMOGRAPHY_CREDITS} filmography creditsâ€¦</div> : <>
-              <div className="credits-title"><strong>Complete anime filmography</strong><span>{filtered.length} matching credits{limitedCredits[actor.id] ? ` Â· first ${MAX_FILMOGRAPHY_CREDITS} shown` : ""}</span></div>
+            {isOpen && <div className="credits">{loadingActor === actor.id ? <div className="loading-row">Loading up to {MAX_FILMOGRAPHY_CREDITS} filmography credits…</div> : <>
+              <div className="credits-title"><strong>Complete anime filmography</strong><span>{filtered.length} matching credits{limitedCredits[actor.id] ? ` · first ${MAX_FILMOGRAPHY_CREDITS} shown` : ""}</span></div>
               {filtered.length ? <div className="credit-grid">{filtered.map((credit) => <div className="credit" key={credit.node.id}><img src={credit.node.coverImage.medium || credit.node.coverImage.large} alt={`${title(credit.node)} cover`} loading="lazy" decoding="async" /><div><div className="credit-anime">{title(credit.node)}</div><div className="credit-char">{credit.characters?.length ? credit.characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character.id)} target="_blank" rel="noreferrer">{character.name.full}</a></span>) : "Character role"}</div>{credit.characterRole && <span className="role-chip">{pretty(credit.characterRole)}</span>}</div><span className="year">{credit.node.startDate.year || "TBA"}</span></div>)}</div> : <div className="notice">No roles matched this filter.</div>}
             </>}</div>}
           </article>;
@@ -372,11 +331,11 @@ function groupActors(animeList: AnimeDetail[]): ActorRow[] {
 }
 
 function Comparison({ primary, comparisons, overlap, scope, primaryCount, remove, addMore }: { primary: Anime; comparisons: ComparisonSelection[]; overlap: SharedActor[]; scope: "entry" | "series"; primaryCount: number; remove: (id: number) => void; addMore: () => void }) {
-  if (!comparisons.length) return <div className="comparison-empty"><div className="compare-icon">â‡„</div><h3>Add one anime to compare</h3><p>Choose â€œAdd comparisonâ€ above. VoiceTrail will show the actors shared by both anime or franchises.</p></div>;
+  if (!comparisons.length) return <div className="comparison-empty"><div className="compare-icon">⇄</div><h3>Add one anime to compare</h3><p>Choose “Add comparison” above. VoiceTrail will show the actors shared by both anime or franchises.</p></div>;
   const selections = [{ root: primary, count: primaryCount }, ...comparisons.map((item) => ({ root: item.root, count: scope === "series" ? item.series.length : 1 }))];
   return <div className="comparison-panel">
     <div className="comparison-toolbar"><div><strong>{selections.length} anime compared</strong><span>Actors must appear in both selected casts</span></div>{selections.length < 2 && <button onClick={addMore}>+ Add another anime</button>}</div>
-    <div className="comparison-selections">{selections.map((item, index) => <div className="comparison-selection" key={item.root.id}><span className="selection-number">{index + 1}</span><img src={item.root.coverImage.large} alt={`${title(item.root)} cover`} loading="lazy" decoding="async" /><strong>{title(item.root)}{scope === "series" ? <small>{item.count} {item.count === 1 ? "entry" : "entries"}</small> : null}</strong>{index > 0 && <button onClick={() => remove(item.root.id)} aria-label={`Remove ${title(item.root)} from comparison`}>Ã—</button>}</div>)}</div>
+    <div className="comparison-selections">{selections.map((item, index) => <div className="comparison-selection" key={item.root.id}><span className="selection-number">{index + 1}</span><img src={item.root.coverImage.large} alt={`${title(item.root)} cover`} loading="lazy" decoding="async" /><strong>{title(item.root)}{scope === "series" ? <small>{item.count} {item.count === 1 ? "entry" : "entries"}</small> : null}</strong>{index > 0 && <button onClick={() => remove(item.root.id)} aria-label={`Remove ${title(item.root)} from comparison`}>×</button>}</div>)}</div>
     <div className="overlap-head"><h3>{overlap.length} shared voice {overlap.length === 1 ? "actor" : "actors"}</h3><p>Shared across all {selections.length} selected casts in the chosen dub</p></div>
     {overlap.length ? <div className="overlap-grid">{overlap.map(({ actor, matches }) => <article className="overlap-card" key={actor.id}>
       <a className="overlap-actor" href={actorUrl(actor.id)} target="_blank" rel="noreferrer" aria-label={`${actor.name.full} on AniList`}><img src={actor.image.large} alt={actor.name.full} loading="lazy" decoding="async" /><span className="overlap-name">{actor.name.full}</span></a>
@@ -388,4 +347,3 @@ function Comparison({ primary, comparisons, overlap, scope, primaryCount, remove
     </article>)}</div> : <div className="notice">No actors appear in both selected casts for this dub.</div>}
   </div>;
 }
-
