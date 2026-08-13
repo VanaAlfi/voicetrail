@@ -168,7 +168,9 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 .overlap-card > img { width: 58px; height: 72px; border-radius: 12px; object-fit: cover; }
 .overlap-name { font-weight: 760; align-self: center; }
 .role-pair { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.role-pair div { background: white; border: 1px solid #e5e1d9; border-radius: 10px; padding: 9px; min-width: 0; }
+.role-pair > div { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 9px; background: white; border: 1px solid #e5e1d9; border-radius: 10px; padding: 7px; min-width: 0; }
+.overlap-character { width: 48px; height: 62px; border-radius: 7px; object-fit: cover; object-position: center top; }
+.role-detail { min-width: 0; }
 .role-pair span, .role-pair strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .role-pair span { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
 .role-pair strong { font-size: 12px; }
@@ -207,3 +209,4 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 @media (max-width: 430px) {
   .comparison-selections { grid-template-columns: 1fr; }
 }
+
