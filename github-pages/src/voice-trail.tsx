@@ -74,8 +74,28 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 }
 
 const SEARCH_QUERY = `query ($search: String!) { Page(page: 1, perPage: 8) { media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } }`;
-const ANIME_QUERY = `query ($id: Int!, $language: StaffLanguage!, $page: Int!) { Media(id: $id, type: ANIME) { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format relations { edges { relationType(version: 2) node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } characters(page: $page, perPage: 50, sort: [ROLE, RELEVANCE]) { pageInfo { hasNextPage } edges { role node { id name { full } image { large } } voiceActors(language: $language, sort: [RELEVANCE]) { id name { full } image { large } languageV2 } } } } }`;
+const ANIME_FIELDS = `fragment AnimeFields on Media { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format relations { edges { relationType(version: 2) node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } characters(page: $page, perPage: 50, sort: [ROLE, RELEVANCE]) { pageInfo { hasNextPage } edges { role node { id name { full } image { large } } voiceActors(language: $language, sort: [RELEVANCE]) { id name { full } image { large } languageV2 } } } }`;
 const CREDITS_QUERY = `query ($id: Int!, $page: Int!) { Staff(id: $id) { characterMedia(page: $page, perPage: 50, sort: [START_DATE_DESC]) { pageInfo { hasNextPage } edges { characterRole characters { name { full } } node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } } }`;
+
+async function fetchAnimeBatch(ids: number[], language: string) {
+  const combined = new Map<number, AnimeDetail>();
+  let active = [...ids];
+  let page = 1;
+  while (active.length) {
+    const selections = active.map((id, index) => `m${index}: Media(id: ${id}, type: ANIME) { ...AnimeFields }`).join("\n");
+    const data = await gql<Record<string, AnimeDetail>>(`query ($language: StaffLanguage!, $page: Int!) { ${selections} } ${ANIME_FIELDS}`, { language, page });
+    const nextActive: number[] = [];
+    active.forEach((id, index) => {
+      const detail = data[`m${index}`];
+      const previous = combined.get(id);
+      combined.set(id, previous ? { ...previous, characters: { pageInfo: detail.characters.pageInfo, edges: [...previous.characters.edges, ...detail.characters.edges] } } : detail);
+      if (detail.characters.pageInfo.hasNextPage) nextActive.push(id);
+    });
+    active = nextActive;
+    page += 1;
+  }
+  return ids.map((id) => ({ ...combined.get(id)!, characters: { pageInfo: { hasNextPage: false }, edges: combined.get(id)!.characters.edges } }));
+}
 
 function pretty(value?: string | null) { return value ? value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase()) : "Anime"; }
 function title(anime: Anime) { return anime.title.english || anime.title.userPreferred; }
@@ -116,25 +136,23 @@ export function VoiceTrail() {
   }
 
   async function getAnime(id: number, nextLanguage = language) {
-    const cacheKey = `${nextLanguage}:${id}`;
-    const cached = animeCache.get(cacheKey);
-    if (cached) return cached;
-    const request = (async () => {
-      let page = 1;
-      const first = (await gql<{ Media: AnimeDetail }>(ANIME_QUERY, { id, language: nextLanguage, page })).Media;
-      const edges = [...first.characters.edges];
-      let more = first.characters.pageInfo.hasNextPage;
-      while (more) {
-        page += 1;
-        const next = (await gql<{ Media: AnimeDetail }>(ANIME_QUERY, { id, language: nextLanguage, page })).Media;
-        edges.push(...next.characters.edges);
-        more = next.characters.pageInfo.hasNextPage;
-      }
-      return { ...first, characters: { pageInfo: { hasNextPage: false }, edges } };
-    })();
-    animeCache.set(cacheKey, request);
-    try { return await request; }
-    catch (error) { animeCache.delete(cacheKey); throw error; }
+    return (await getAnimeBatch([id], nextLanguage))[0];
+  }
+
+  async function getAnimeBatch(ids: number[], nextLanguage = language) {
+    const uniqueIds = [...new Set(ids)];
+    const missing = uniqueIds.filter((id) => !animeCache.has(`${nextLanguage}:${id}`));
+    for (let start = 0; start < missing.length; start += 12) {
+      const chunk = missing.slice(start, start + 12);
+      const batch = fetchAnimeBatch(chunk, nextLanguage);
+      chunk.forEach((id, index) => {
+        const cacheKey = `${nextLanguage}:${id}`;
+        const request = batch.then((details) => details[index]);
+        animeCache.set(cacheKey, request);
+        request.catch(() => { if (animeCache.get(cacheKey) === request) animeCache.delete(cacheKey); });
+      });
+    }
+    return Promise.all(ids.map((id) => animeCache.get(`${nextLanguage}:${id}`)!));
   }
 
   async function collectFranchise(first: AnimeDetail, nextLanguage = language) {
@@ -145,11 +163,13 @@ export function VoiceTrail() {
       const loaded = new Map<number, AnimeDetail>([[first.id, first]]);
       const queued: Anime[] = first.relations.edges.filter((e) => FRANCHISE_LINKS.has(e.relationType) && e.node.type === "ANIME").map((e) => e.node);
       while (queued.length) {
-        const next = queued.shift()!;
-        if (loaded.has(next.id)) continue;
-        const detail = await getAnime(next.id, nextLanguage);
-        loaded.set(detail.id, detail);
-        for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.node.id)) queued.push(edge.node);
+        const nextIds = [...new Set(queued.splice(0).map((anime) => anime.id))].filter((id) => !loaded.has(id));
+        if (!nextIds.length) continue;
+        const details = await getAnimeBatch(nextIds, nextLanguage);
+        for (const detail of details) {
+          loaded.set(detail.id, detail);
+          for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.node.id)) queued.push(edge.node);
+        }
       }
       return [...loaded.values()].sort((a, b) => (a.startDate.year || 9999) - (b.startDate.year || 9999));
     })();
