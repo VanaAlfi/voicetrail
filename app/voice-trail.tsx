@@ -19,6 +19,8 @@ type RelationEdge = { relationType: string; node: Anime };
 type AnimeDetail = Anime & { characters: { pageInfo: { hasNextPage: boolean }; edges: CastEdge[] }; relations: { edges: RelationEdge[] } };
 type Credit = { characterRole?: "MAIN" | "SUPPORTING" | "BACKGROUND" | null; characters?: { name: { full: string } }[]; node: Anime };
 type ActorRow = Actor & { appearances: { anime: Anime; character: Character; role: string }[] };
+type ComparisonSelection = { root: AnimeDetail; series: AnimeDetail[] };
+type SharedActor = { actor: ActorRow; matches: ActorRow[] };
 
 const API = "https://graphql.anilist.co";
 const FRANCHISE_LINKS = new Set(["PREQUEL", "SEQUEL", "SIDE_STORY", "SPIN_OFF", "PARENT"]);
@@ -49,8 +51,7 @@ export function VoiceTrail() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Anime[]>([]);
   const [series, setSeries] = useState<AnimeDetail[]>([]);
-  const [comparison, setComparison] = useState<AnimeDetail | null>(null);
-  const [comparisonSeries, setComparisonSeries] = useState<AnimeDetail[]>([]);
+  const [comparisons, setComparisons] = useState<ComparisonSelection[]>([]);
   const [searchTarget, setSearchTarget] = useState<"primary" | "compare">("primary");
   const [scope, setScope] = useState<"entry" | "series">("series");
   const [language, setLanguage] = useState("JAPANESE");
@@ -66,10 +67,10 @@ export function VoiceTrail() {
 
   const activeSeries = scope === "series" ? series : series.slice(0, 1);
   const actors = useMemo(() => groupActors(activeSeries), [activeSeries]);
-  const comparisonActors = useMemo(() => comparison ? groupActors(scope === "series" ? comparisonSeries : [comparison]) : [], [comparison, comparisonSeries, scope]);
+  const comparisonActors = useMemo(() => comparisons.map((item) => groupActors(scope === "series" ? item.series : [item.root])), [comparisons, scope]);
   const overlap = useMemo(() => {
-    const other = new Map(comparisonActors.map((actor) => [actor.id, actor]));
-    return actors.filter((actor) => other.has(actor.id)).map((actor) => ({ left: actor, right: other.get(actor.id)! }));
+    const others = comparisonActors.map((cast) => new Map(cast.map((actor) => [actor.id, actor])));
+    return actors.filter((actor) => others.length > 0 && others.every((cast) => cast.has(actor.id))).map((actor) => ({ actor, matches: others.map((cast) => cast.get(actor.id)!) }));
   }, [actors, comparisonActors]);
 
   async function search(event: FormEvent) {
@@ -118,8 +119,13 @@ export function VoiceTrail() {
     setLoadingAnime(true); setError(""); setResults([]); setCredits({}); setOpenActor(null);
     try {
       const detail = await getAnime(anime.id);
-      if (searchTarget === "compare") { setComparison(detail); setComparisonSeries([detail]); setView("overlap"); if (scope === "series") setComparisonSeries(await collectFranchise(detail)); }
-      else { setSeries([detail]); setComparison(null); setComparisonSeries([]); setView("cast"); await loadFranchise(detail); }
+      if (searchTarget === "compare") {
+        if (comparisons.length >= 3) { setError("You can compare up to four anime in total."); return; }
+        if (series[0]?.id === detail.id || comparisons.some((item) => item.root.id === detail.id)) { setError("That anime is already in this comparison."); return; }
+        const linked = scope === "series" ? await collectFranchise(detail) : [detail];
+        setComparisons((current) => [...current, { root: detail, series: linked }]); setView("overlap");
+      }
+      else { setSeries([detail]); setComparisons([]); setView("cast"); await loadFranchise(detail); }
       setQuery("");
       window.setTimeout(() => document.getElementById("cast")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (err) { setError(err instanceof Error ? err.message : "Cast lookup failed."); setSeriesLoading(false); }
@@ -130,16 +136,18 @@ export function VoiceTrail() {
     setLanguage(next); setCredits({}); setOpenActor(null); setLoadingAnime(true);
     try {
       if (series[0]) { const fresh = await getAnime(series[0].id, next); setSeries([fresh]); if (scope === "series") await loadFranchise(fresh, next); }
-      if (comparison) { const freshComparison = await getAnime(comparison.id, next); setComparison(freshComparison); setComparisonSeries(scope === "series" ? await collectFranchise(freshComparison, next) : [freshComparison]); }
+      const refreshed: ComparisonSelection[] = [];
+      for (const item of comparisons) { const root = await getAnime(item.root.id, next); refreshed.push({ root, series: scope === "series" ? await collectFranchise(root, next) : [root] }); }
+      setComparisons(refreshed);
     } catch (err) { setError(err instanceof Error ? err.message : "Dub lookup failed."); }
     finally { setLoadingAnime(false); }
   }
 
   async function changeScope(next: "entry" | "series") {
     setScope(next);
-    if (next === "series" && comparison && comparisonSeries.length <= 1) {
+    if (next === "series" && comparisons.some((item) => item.series.length <= 1)) {
       setSeriesLoading(true);
-      try { setComparisonSeries(await collectFranchise(comparison)); }
+      try { const linked: ComparisonSelection[] = []; for (const item of comparisons) linked.push({ root: item.root, series: item.series.length > 1 ? item.series : await collectFranchise(item.root) }); setComparisons(linked); }
       catch (err) { setError(err instanceof Error ? err.message : "The comparison series could not be linked."); }
       finally { setSeriesLoading(false); }
     }
@@ -166,7 +174,7 @@ export function VoiceTrail() {
     <nav className="nav" aria-label="Main navigation"><div className="brand"><span className="brand-mark">V</span> VoiceTrail</div><span className="source-pill">Powered by AniList data</span></nav>
     <section className="hero"><div className="eyebrow">Follow every voice, across every role</div><h1>Where else have you<br />heard that <span className="accent">voice?</span></h1><p className="hero-copy">Explore complete voice-actor filmographies, roll an entire series into one cast, or compare two anime to find the actors they share.</p></section>
     <section className="search-wrap" aria-label="Anime search">
-      {primary && <div className="search-mode"><button className={searchTarget === "primary" ? "active" : ""} onClick={() => setSearchTarget("primary")}>Choose anime</button><button className={searchTarget === "compare" ? "active" : ""} onClick={() => setSearchTarget("compare")}>Add comparison</button></div>}
+      {primary && <div className="search-mode"><button className={searchTarget === "primary" ? "active" : ""} onClick={() => setSearchTarget("primary")}>Choose anime</button><button className={searchTarget === "compare" ? "active" : ""} onClick={() => setSearchTarget("compare")} disabled={comparisons.length >= 3}>Add comparison ({comparisons.length + 1}/4)</button></div>}
       <form className="search-box" onSubmit={search}><input aria-label="Anime title" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchTarget === "compare" ? "Search the anime to compare…" : "Try “Frieren” or “Mushoku Tensei”"} autoComplete="off" /><button className="primary-btn" disabled={searching || loadingAnime}>{searching ? "Searching…" : "Find anime"}</button></form>
       {results.length > 0 && <div className="results-popover" role="listbox" aria-label="Anime matches">{results.map((anime) => <button className="result-row" key={anime.id} onClick={() => chooseAnime(anime)} role="option" aria-selected="false"><img src={anime.coverImage.medium || anime.coverImage.large} alt="" /><span><span className="result-title">{title(anime)}</span><span className="result-meta">{anime.seasonYear || anime.startDate.year || "Year unknown"} · {pretty(anime.format)}</span></span><span className="result-arrow">→</span></button>)}</div>}
       {error && <div className="error" role="alert">{error}</div>}
@@ -177,8 +185,8 @@ export function VoiceTrail() {
       <div className="selection-head"><div className="cover-stack">{activeSeries.slice(0, 3).reverse().map((anime) => <img src={anime.coverImage.large} alt="" key={anime.id} />)}</div><div><div className="selection-kicker">Exploring</div><h2>{title(primary)}</h2><div className="selection-meta">{scope === "series" ? `${series.length} connected anime · ${actors.length} unique voice actors` : `${primary.seasonYear || primary.startDate.year || "Year unknown"} · ${pretty(primary.format)} · ${actors.length} voice actors`}</div></div><div className="filters"><div className="select-wrap"><label htmlFor="scope">Scope</label><select id="scope" value={scope} onChange={(e) => changeScope(e.target.value as "entry" | "series")}><option value="series">Full series</option><option value="entry">This entry</option></select></div><div className="select-wrap"><label htmlFor="language">Dub</label><select id="language" value={language} onChange={(e) => changeLanguage(e.target.value)}><option value="JAPANESE">Japanese</option><option value="ENGLISH">English</option><option value="KOREAN">Korean</option><option value="FRENCH">French</option><option value="GERMAN">German</option><option value="SPANISH">Spanish</option><option value="PORTUGUESE">Portuguese</option></select></div></div></div>
       {seriesLoading && <div className="series-loading">Linking seasons, OVAs, and related entries…</div>}
       {scope === "series" && series.length > 1 && <div className="series-tabs">{series.map((anime) => <div className="series-tab" key={anime.id}><img src={anime.coverImage.medium || anime.coverImage.large} alt="" /><span>{title(anime)}<small>{anime.startDate.year || "TBA"} · {pretty(anime.format)}</small></span></div>)}</div>}
-      <div className="view-tabs"><button className={view === "cast" ? "active" : ""} onClick={() => setView("cast")}>Cast & filmographies</button><button className={view === "overlap" ? "active" : ""} onClick={() => { setView("overlap"); setSearchTarget("compare"); }}>Compare casts {comparison && <span>{overlap.length}</span>}</button></div>
-      {view === "overlap" ? <Comparison primary={primary} comparison={comparison} overlap={overlap} scope={scope} primaryCount={activeSeries.length} comparisonCount={scope === "series" ? comparisonSeries.length : comparison ? 1 : 0} remove={() => { setComparison(null); setComparisonSeries([]); }} /> : <>
+      <div className="view-tabs"><button className={view === "cast" ? "active" : ""} onClick={() => setView("cast")}>Cast & filmographies</button><button className={view === "overlap" ? "active" : ""} onClick={() => { setView("overlap"); if (comparisons.length < 3) setSearchTarget("compare"); }}>Compare casts {comparisons.length > 0 && <span>{overlap.length}</span>}</button></div>
+      {view === "overlap" ? <Comparison primary={primary} comparisons={comparisons} overlap={overlap} scope={scope} primaryCount={activeSeries.length} remove={(id) => setComparisons((current) => current.filter((item) => item.root.id !== id))} addMore={() => { setSearchTarget("compare"); document.querySelector<HTMLInputElement>('[aria-label="Anime title"]')?.focus(); }} /> : <>
         <div className="cast-intro"><h3>Voice cast</h3><div className="select-wrap"><label htmlFor="role">Filmography</label><select id="role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}><option value="ALL">All roles</option><option value="MAIN">Main only</option><option value="SUPPORTING">Supporting</option><option value="BACKGROUND">Background</option></select></div></div>
         <div className="cast-list">{actors.length === 0 && <div className="notice">No {language.toLowerCase()} cast is listed for this selection.</div>}{actors.map((actor) => {
           const isOpen = openActor === actor.id; const filtered = (credits[actor.id] || []).filter((c) => roleFilter === "ALL" || c.characterRole === roleFilter); const current = actor.appearances[0];
@@ -198,7 +206,13 @@ function groupActors(animeList: AnimeDetail[]): ActorRow[] {
   return [...grouped.values()];
 }
 
-function Comparison({ primary, comparison, overlap, scope, primaryCount, comparisonCount, remove }: { primary: Anime; comparison: AnimeDetail | null; overlap: { left: ActorRow; right: ActorRow }[]; scope: "entry" | "series"; primaryCount: number; comparisonCount: number; remove: () => void }) {
-  if (!comparison) return <div className="comparison-empty"><div className="compare-icon">⇄</div><h3>Add another anime to compare</h3><p>Use “Add comparison” above, then search for something like Mushoku Tensei. VoiceTrail will reveal every actor shared by both casts.</p></div>;
-  return <div className="comparison-panel"><div className="versus"><div><img src={primary.coverImage.large} alt="" /><strong>{title(primary)}{scope === "series" ? ` · ${primaryCount} entries` : ""}</strong></div><span>and</span><div><img src={comparison.coverImage.large} alt="" /><strong>{title(comparison)}{scope === "series" ? ` · ${comparisonCount} entries` : ""}</strong><button onClick={remove} aria-label="Remove comparison">×</button></div></div><div className="overlap-head"><h3>{overlap.length} shared voice {overlap.length === 1 ? "actor" : "actors"}</h3><p>Matching actor identities in the selected dub</p></div>{overlap.length ? <div className="overlap-grid">{overlap.map(({ left, right }) => <article className="overlap-card" key={left.id}><img src={left.image.large} alt="" /><div className="overlap-name">{left.name.full}</div><div className="role-pair"><div><span>In {title(primary)}</span><strong>{[...new Set(left.appearances.map((a) => a.character.name.full))].join(", ")}</strong></div><div><span>In {title(comparison)}</span><strong>{[...new Set(right.appearances.map((a) => a.character.name.full))].join(", ")}</strong></div></div></article>)}</div> : <div className="notice">No shared actors were found for these casts and the selected dub.</div>}</div>;
+function Comparison({ primary, comparisons, overlap, scope, primaryCount, remove, addMore }: { primary: Anime; comparisons: ComparisonSelection[]; overlap: SharedActor[]; scope: "entry" | "series"; primaryCount: number; remove: (id: number) => void; addMore: () => void }) {
+  if (!comparisons.length) return <div className="comparison-empty"><div className="compare-icon">⇄</div><h3>Add up to three more anime</h3><p>Choose “Add comparison” above. VoiceTrail will show the actors shared by every selected anime or franchise.</p></div>;
+  const selections = [{ root: primary, count: primaryCount }, ...comparisons.map((item) => ({ root: item.root, count: scope === "series" ? item.series.length : 1 }))];
+  return <div className="comparison-panel">
+    <div className="comparison-toolbar"><div><strong>{selections.length} of 4 anime selected</strong><span>Actors must appear in every selected cast</span></div>{selections.length < 4 && <button onClick={addMore}>+ Add another anime</button>}</div>
+    <div className="comparison-selections">{selections.map((item, index) => <div className="comparison-selection" key={item.root.id}><span className="selection-number">{index + 1}</span><img src={item.root.coverImage.large} alt="" /><strong>{title(item.root)}{scope === "series" ? <small>{item.count} {item.count === 1 ? "entry" : "entries"}</small> : null}</strong>{index > 0 && <button onClick={() => remove(item.root.id)} aria-label={`Remove ${title(item.root)} from comparison`}>×</button>}</div>)}</div>
+    <div className="overlap-head"><h3>{overlap.length} shared voice {overlap.length === 1 ? "actor" : "actors"}</h3><p>Shared across all {selections.length} selected casts in the chosen dub</p></div>
+    {overlap.length ? <div className="overlap-grid">{overlap.map(({ actor, matches }) => <article className="overlap-card" key={actor.id}><img src={actor.image.large} alt="" /><div className="overlap-name">{actor.name.full}</div><div className="role-pair">{[actor, ...matches].map((row, index) => <div key={selections[index].root.id}><span>In {title(selections[index].root)}</span><strong>{[...new Set(row.appearances.map((a) => a.character.name.full))].join(", ")}</strong></div>)}</div></article>)}</div> : <div className="notice">No actors appear in all {selections.length} selected casts for this dub.</div>}
+  </div>;
 }
