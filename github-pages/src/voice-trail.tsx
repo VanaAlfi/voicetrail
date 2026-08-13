@@ -13,7 +13,7 @@ type Anime = {
 };
 
 type Actor = { id: number; name: { full: string }; image: { large: string }; languageV2?: string | null; favourites?: number | null };
-type Character = { id: number; name: { full: string }; image: { large: string } };
+type Character = { id: number; name: { full: string }; image: { large: string }; favourites?: number | null };
 type CastEdge = { role: "MAIN" | "SUPPORTING" | "BACKGROUND"; node: Character; voiceActors: Actor[] | null };
 type RelationEdge = { relationType: string; node: Anime };
 type AnimeDetail = Anime & { characters: { pageInfo: { hasNextPage: boolean }; edges: CastEdge[] }; relations: { edges: RelationEdge[] } };
@@ -93,7 +93,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 }
 
 const SEARCH_QUERY = `query ($search: String!) { Page(page: 1, perPage: 8) { media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } }`;
-const ANIME_FIELDS = `fragment AnimeFields on Media { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format relations { edges { relationType(version: 2) node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } characters(page: $page, perPage: 50, sort: [ROLE, RELEVANCE]) { pageInfo { hasNextPage } edges { role node { id name { full } image { large } } voiceActors(language: $language, sort: [RELEVANCE]) { id name { full } image { large } languageV2 favourites } } } }`;
+const ANIME_FIELDS = `fragment AnimeFields on Media { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format relations { edges { relationType(version: 2) node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } characters(page: $page, perPage: 50, sort: [ROLE, RELEVANCE]) { pageInfo { hasNextPage } edges { role node { id name { full } image { large } favourites } voiceActors(language: $language, sort: [RELEVANCE]) { id name { full } image { large } languageV2 favourites } } } }`;
 async function fetchAnimeBatch(ids: number[], language: string) {
   const combined = new Map<number, AnimeDetail>();
   let active = [...ids];
@@ -372,7 +372,11 @@ function groupActors(animeList: AnimeDetail[]): ActorRow[] {
   return [...grouped.values()].sort((left, right) => {
     const leftRole = Math.min(...left.appearances.map((appearance) => roleRank[appearance.role] ?? 3));
     const rightRole = Math.min(...right.appearances.map((appearance) => roleRank[appearance.role] ?? 3));
-    return leftRole - rightRole || (right.favourites || 0) - (left.favourites || 0) || left.name.full.localeCompare(right.name.full);
+    const leftCharacterPopularity = Math.max(0, ...left.appearances.map((appearance) => appearance.character.favourites || 0));
+    const rightCharacterPopularity = Math.max(0, ...right.appearances.map((appearance) => appearance.character.favourites || 0));
+    const leftPopularity = (left.favourites || 0) + leftCharacterPopularity;
+    const rightPopularity = (right.favourites || 0) + rightCharacterPopularity;
+    return leftRole - rightRole || rightPopularity - leftPopularity || (right.favourites || 0) - (left.favourites || 0) || left.name.full.localeCompare(right.name.full);
   });
 }
 
