@@ -27,9 +27,17 @@ const FRANCHISE_LINKS = new Set(["PREQUEL", "SEQUEL", "SIDE_STORY", "SPIN_OFF", 
 
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, variables }) });
-    const payload = await response.json();
+    let response: Response;
+    try {
+      response = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, variables }) });
+    } catch {
+      if (attempt < 2) { await new Promise((resolve) => window.setTimeout(resolve, 900 * (attempt + 1))); continue; }
+      throw new Error("AniList’s public API is temporarily unreachable. Please try again in a few minutes.");
+    }
+    const payload = await response.json().catch(() => ({ errors: [{ message: "AniList returned an unreadable response." }] }));
     if (response.ok && !payload.errors) return payload.data as T;
+    if (response.status === 403) throw new Error("AniList’s public API is temporarily unavailable. VoiceTrail will work again when AniList restores access.");
+    if (response.status === 429) throw new Error("AniList is receiving too many requests right now. Please wait a minute and try again.");
     if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
       const retryAfter = Number(response.headers.get("retry-after") || 0);
       await new Promise((resolve) => window.setTimeout(resolve, Math.max(retryAfter * 1000, 700 * (attempt + 1))));
