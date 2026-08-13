@@ -238,7 +238,48 @@ export function VoiceTrail() {
         const details = await getAnimeBatch(nextIds, nextLanguage);
         for (const detail of details) {
           loaded.set(detail.id, detail);
-          for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.nodï]­¢G§²ÚîÆ­yÚ        const root = await getAnime(item.root.id, next);
+          for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.node.id)) queued.push(edge.node);
+        }
+      }
+      return [...loaded.values()].sort((a, b) => (a.startDate.year || 9999) - (b.startDate.year || 9999));
+    })();
+    franchiseCache.set(cacheKey, request);
+    try { return await request; }
+    catch (error) { franchiseCache.delete(cacheKey); throw error; }
+  }
+
+  async function loadFranchise(first: AnimeDetail, nextLanguage = language) {
+    setSeriesLoading(true);
+    setSeries(await collectFranchise(first, nextLanguage));
+    setSeriesLoading(false);
+  }
+
+  async function chooseAnime(anime: Anime) {
+    setLoadingAnime(true); setError(""); setResults([]); setCredits({}); setOpenActor(null);
+    try {
+      const detail = await getAnime(anime.id);
+      if (searchTarget === "compare") {
+        if (comparisons.length >= 1) { setError("You can compare two anime in total."); return; }
+        if (series[0]?.id === detail.id || comparisons.some((item) => item.root.id === detail.id)) { setError("That anime is already in this comparison."); return; }
+        const linked = scope === "series" ? await collectFranchise(detail) : [detail];
+        setComparisons((current) => [...current, { root: detail, series: linked }]); setView("overlap"); writeUrl(series[0]?.id, detail.id);
+      }
+      else { setSeries([detail]); setComparisons([]); setView("cast"); await loadFranchise(detail); writeUrl(detail.id); }
+      setQuery("");
+      window.setTimeout(() => document.getElementById("cast")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    } catch (err) { setError(err instanceof Error ? err.message : "Cast lookup failed."); setSeriesLoading(false); }
+    finally { setLoadingAnime(false); }
+  }
+
+  async function changeLanguage(next: string) {
+    setLanguage(next); setCredits({}); setOpenActor(null); setLoadingAnime(true);
+    try {
+      const primaryRequest = series[0] ? (async () => {
+        const root = await getAnime(series[0].id, next);
+        return scope === "series" ? collectFranchise(root, next) : [root];
+      })() : Promise.resolve<AnimeDetail[]>([]);
+      const comparisonRequest = Promise.all(comparisons.map(async (item) => {
+        const root = await getAnime(item.root.id, next);
         return { root, series: scope === "series" ? await collectFranchise(root, next) : [root] };
       }));
       const [refreshedPrimary, refreshed] = await Promise.all([primaryRequest, comparisonRequest]);
