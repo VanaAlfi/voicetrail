@@ -1,0 +1,7 @@
+packages:
+  - github-pages
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
