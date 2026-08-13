@@ -1,4 +1,4 @@
-@import "../github-pages/node_modules/tailwindcss/index.css";
+@import "tailwindcss";
 
 :root {
   --ink: #18233f;
