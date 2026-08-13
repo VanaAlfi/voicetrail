@@ -24,33 +24,58 @@ type SharedActor = { actor: ActorRow; matches: ActorRow[] };
 
 const API = "https://graphql.anilist.co";
 const FRANCHISE_LINKS = new Set(["PREQUEL", "SEQUEL", "SIDE_STORY", "SPIN_OFF", "PARENT"]);
+const animeCache = new Map<string, Promise<AnimeDetail>>();
+const franchiseCache = new Map<string, Promise<AnimeDetail[]>>();
+let apiCooldownUntil = 0;
+let apiQueue: Promise<void> = Promise.resolve();
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function queuedFetch(query: string, variables: Record<string, unknown>) {
+  const request = apiQueue.then(async () => {
+    const cooldown = apiCooldownUntil - Date.now();
+    if (cooldown > 0) await delay(cooldown);
+    return fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, variables }) });
+  });
+  apiQueue = request.then(() => undefined, () => undefined);
+  return request;
+}
 
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response: Response;
     try {
-      response = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, variables }) });
+      response = await queuedFetch(query, variables);
     } catch {
-      if (attempt < 2) { await new Promise((resolve) => window.setTimeout(resolve, 900 * (attempt + 1))); continue; }
+      if (attempt < 2) { await delay(1200 * (attempt + 1)); continue; }
       throw new Error("AniList’s public API is temporarily unreachable. Please try again in a few minutes.");
     }
     const payload = await response.json().catch(() => ({ errors: [{ message: "AniList returned an unreadable response." }] }));
+    const remaining = Number(response.headers.get("x-ratelimit-remaining"));
+    const resetAt = Number(response.headers.get("x-ratelimit-reset")) * 1000;
+    if (Number.isFinite(remaining) && remaining <= 2 && Number.isFinite(resetAt) && resetAt > Date.now()) apiCooldownUntil = Math.max(apiCooldownUntil, resetAt + 250);
     if (response.ok && !payload.errors) return payload.data as T;
     if (response.status === 403) throw new Error("AniList’s public API is temporarily unavailable. VoiceTrail will work again when AniList restores access.");
-    if (response.status === 429) throw new Error("AniList is receiving too many requests right now. Please wait a minute and try again.");
-    if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
-      const retryAfter = Number(response.headers.get("retry-after") || 0);
-      await new Promise((resolve) => window.setTimeout(resolve, Math.max(retryAfter * 1000, 700 * (attempt + 1))));
+    if (response.status === 429 && attempt < 2) {
+      const retryAfter = Number(response.headers.get("retry-after") || 0) * 1000;
+      apiCooldownUntil = Math.max(apiCooldownUntil, retryAfter ? Date.now() + retryAfter : (resetAt > Date.now() ? resetAt + 250 : Date.now() + 60000));
       continue;
     }
+    if (attempt < 2 && response.status >= 500) {
+      await delay(1200 * (attempt + 1));
+      continue;
+    }
+    if (response.status === 429) throw new Error("AniList is receiving too many requests right now. Please wait a minute and try again.");
     throw new Error(payload.errors?.[0]?.message || "AniList could not be reached.");
   }
   throw new Error("AniList could not be reached.");
 }
 
 const SEARCH_QUERY = `query ($search: String!) { Page(page: 1, perPage: 8) { media(search: $search, type: ANIME, sort: SEARCH_MATCH) { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } }`;
-const ANIME_QUERY = `query ($id: Int!, $language: StaffLanguage!, $page: Int!) { Media(id: $id, type: ANIME) { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format relations { edges { relationType(version: 2) node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } characters(page: $page, perPage: 25, sort: [ROLE, RELEVANCE]) { pageInfo { hasNextPage } edges { role node { id name { full } image { large } } voiceActors(language: $language, sort: [RELEVANCE]) { id name { full } image { large } languageV2 } } } } }`;
-const CREDITS_QUERY = `query ($id: Int!, $page: Int!) { Staff(id: $id) { characterMedia(page: $page, perPage: 25, sort: [START_DATE_DESC]) { pageInfo { hasNextPage } edges { characterRole characters { name { full } } node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } } }`;
+const ANIME_QUERY = `query ($id: Int!, $language: StaffLanguage!, $page: Int!) { Media(id: $id, type: ANIME) { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format relations { edges { relationType(version: 2) node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } characters(page: $page, perPage: 50, sort: [ROLE, RELEVANCE]) { pageInfo { hasNextPage } edges { role node { id name { full } image { large } } voiceActors(language: $language, sort: [RELEVANCE]) { id name { full } image { large } languageV2 } } } } }`;
+const CREDITS_QUERY = `query ($id: Int!, $page: Int!) { Staff(id: $id) { characterMedia(page: $page, perPage: 50, sort: [START_DATE_DESC]) { pageInfo { hasNextPage } edges { characterRole characters { name { full } } node { id type title { userPreferred english } coverImage { large medium } startDate { year month day } seasonYear format } } } } }`;
 
 function pretty(value?: string | null) { return value ? value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase()) : "Anime"; }
 function title(anime: Anime) { return anime.title.english || anime.title.userPreferred; }
@@ -91,30 +116,46 @@ export function VoiceTrail() {
   }
 
   async function getAnime(id: number, nextLanguage = language) {
-    let page = 1;
-    const first = (await gql<{ Media: AnimeDetail }>(ANIME_QUERY, { id, language: nextLanguage, page })).Media;
-    const edges = [...first.characters.edges];
-    let more = first.characters.pageInfo.hasNextPage;
-    while (more) {
-      page += 1;
-      const next = (await gql<{ Media: AnimeDetail }>(ANIME_QUERY, { id, language: nextLanguage, page })).Media;
-      edges.push(...next.characters.edges);
-      more = next.characters.pageInfo.hasNextPage;
-    }
-    return { ...first, characters: { pageInfo: { hasNextPage: false }, edges } };
+    const cacheKey = `${nextLanguage}:${id}`;
+    const cached = animeCache.get(cacheKey);
+    if (cached) return cached;
+    const request = (async () => {
+      let page = 1;
+      const first = (await gql<{ Media: AnimeDetail }>(ANIME_QUERY, { id, language: nextLanguage, page })).Media;
+      const edges = [...first.characters.edges];
+      let more = first.characters.pageInfo.hasNextPage;
+      while (more) {
+        page += 1;
+        const next = (await gql<{ Media: AnimeDetail }>(ANIME_QUERY, { id, language: nextLanguage, page })).Media;
+        edges.push(...next.characters.edges);
+        more = next.characters.pageInfo.hasNextPage;
+      }
+      return { ...first, characters: { pageInfo: { hasNextPage: false }, edges } };
+    })();
+    animeCache.set(cacheKey, request);
+    try { return await request; }
+    catch (error) { animeCache.delete(cacheKey); throw error; }
   }
 
   async function collectFranchise(first: AnimeDetail, nextLanguage = language) {
-    const loaded = new Map<number, AnimeDetail>([[first.id, first]]);
-    const queued: Anime[] = first.relations.edges.filter((e) => FRANCHISE_LINKS.has(e.relationType) && e.node.type === "ANIME").map((e) => e.node);
-    while (queued.length) {
-      const next = queued.shift()!;
-      if (loaded.has(next.id)) continue;
-      const detail = await getAnime(next.id, nextLanguage);
-      loaded.set(detail.id, detail);
-      for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.node.id)) queued.push(edge.node);
-    }
-    return [...loaded.values()].sort((a, b) => (a.startDate.year || 9999) - (b.startDate.year || 9999));
+    const cacheKey = `${nextLanguage}:${first.id}`;
+    const cached = franchiseCache.get(cacheKey);
+    if (cached) return cached;
+    const request = (async () => {
+      const loaded = new Map<number, AnimeDetail>([[first.id, first]]);
+      const queued: Anime[] = first.relations.edges.filter((e) => FRANCHISE_LINKS.has(e.relationType) && e.node.type === "ANIME").map((e) => e.node);
+      while (queued.length) {
+        const next = queued.shift()!;
+        if (loaded.has(next.id)) continue;
+        const detail = await getAnime(next.id, nextLanguage);
+        loaded.set(detail.id, detail);
+        for (const edge of detail.relations.edges) if (FRANCHISE_LINKS.has(edge.relationType) && edge.node.type === "ANIME" && !loaded.has(edge.node.id)) queued.push(edge.node);
+      }
+      return [...loaded.values()].sort((a, b) => (a.startDate.year || 9999) - (b.startDate.year || 9999));
+    })();
+    franchiseCache.set(cacheKey, request);
+    try { return await request; }
+    catch (error) { franchiseCache.delete(cacheKey); throw error; }
   }
 
   async function loadFranchise(first: AnimeDetail, nextLanguage = language) {
@@ -224,3 +265,4 @@ function Comparison({ primary, comparisons, overlap, scope, primaryCount, remove
     {overlap.length ? <div className="overlap-grid">{overlap.map(({ actor, matches }) => <article className="overlap-card" key={actor.id}><img src={actor.image.large} alt="" /><div className="overlap-name">{actor.name.full}</div><div className="role-pair">{[actor, ...matches].map((row, index) => <div key={selections[index].root.id}><span>In {title(selections[index].root)}</span><strong>{[...new Set(row.appearances.map((a) => a.character.name.full))].join(", ")}</strong></div>)}</div></article>)}</div> : <div className="notice">No actors appear in all {selections.length} selected casts for this dub.</div>}
   </div>;
 }
+
