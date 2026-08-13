@@ -171,9 +171,8 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 .role-pair > div { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 9px; background: white; border: 1px solid #e5e1d9; border-radius: 10px; padding: 7px; min-width: 0; }
 .overlap-character { width: 48px; height: 62px; border-radius: 7px; object-fit: cover; object-position: center top; }
 .role-detail { min-width: 0; }
-.role-pair span, .role-pair strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.role-pair span { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
-.role-pair strong { font-size: 12px; }
+.role-pair span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+.role-pair strong { display: -webkit-box; overflow: hidden; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 @media (max-width: 760px) {
   .nav { padding: 0 18px; }
