@@ -27,35 +27,49 @@ const FRANCHISE_LINKS = new Set(["PREQUEL", "SEQUEL", "SIDE_STORY", "SPIN_OFF", 
 const animeCache = new Map<string, Promise<AnimeDetail>>();
 const franchiseCache = new Map<string, Promise<AnimeDetail[]>>();
 let apiCooldownUntil = 0;
-let apiQueue: Promise<void> = Promise.resolve();
+let activeApiRequests = 0;
+const apiWaiters: (() => void)[] = [];
+const MAX_API_CONCURRENCY = 3;
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function queuedFetch(query: string, variables: Record<string, unknown>) {
-  const request = apiQueue.then(async () => {
+async function acquireApiSlot() {
+  if (activeApiRequests >= MAX_API_CONCURRENCY) await new Promise<void>((resolve) => apiWaiters.push(resolve));
+  activeApiRequests += 1;
+}
+
+function releaseApiSlot() {
+  activeApiRequests -= 1;
+  apiWaiters.shift()?.();
+}
+
+async function limitedFetch(query: string, variables: Record<string, unknown>) {
+  await acquireApiSlot();
+  try {
     const cooldown = apiCooldownUntil - Date.now();
     if (cooldown > 0) await delay(cooldown);
-    return fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, variables }) });
-  });
-  apiQueue = request.then(() => undefined, () => undefined);
-  return request;
+    return await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ query, variables }) });
+  } finally {
+    releaseApiSlot();
+  }
 }
 
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let response: Response;
     try {
-      response = await queuedFetch(query, variables);
+      response = await limitedFetch(query, variables);
     } catch {
       if (attempt < 2) { await delay(1200 * (attempt + 1)); continue; }
       throw new Error("AniList’s public API is temporarily unreachable. Please try again in a few minutes.");
     }
     const payload = await response.json().catch(() => ({ errors: [{ message: "AniList returned an unreadable response." }] }));
     const remaining = Number(response.headers.get("x-ratelimit-remaining"));
+    const limit = Number(response.headers.get("x-ratelimit-limit"));
     const resetAt = Number(response.headers.get("x-ratelimit-reset")) * 1000;
-    if (Number.isFinite(remaining) && remaining <= 2 && Number.isFinite(resetAt) && resetAt > Date.now()) apiCooldownUntil = Math.max(apiCooldownUntil, resetAt + 250);
+    if (Number.isFinite(remaining)) console.debug(`[VoiceTrail] AniList rate limit: ${remaining}/${Number.isFinite(limit) ? limit : "?"} remaining`);
     if (response.ok && !payload.errors) return payload.data as T;
     if (response.status === 403) throw new Error("AniList’s public API is temporarily unavailable. VoiceTrail will work again when AniList restores access.");
     if (response.status === 429 && attempt < 2) {
@@ -204,9 +218,16 @@ export function VoiceTrail() {
   async function changeLanguage(next: string) {
     setLanguage(next); setCredits({}); setOpenActor(null); setLoadingAnime(true);
     try {
-      if (series[0]) { const fresh = await getAnime(series[0].id, next); setSeries([fresh]); if (scope === "series") await loadFranchise(fresh, next); }
-      const refreshed: ComparisonSelection[] = [];
-      for (const item of comparisons) { const root = await getAnime(item.root.id, next); refreshed.push({ root, series: scope === "series" ? await collectFranchise(root, next) : [root] }); }
+      const primaryRequest = series[0] ? (async () => {
+        const root = await getAnime(series[0].id, next);
+        return scope === "series" ? collectFranchise(root, next) : [root];
+      })() : Promise.resolve<AnimeDetail[]>([]);
+      const comparisonRequest = Promise.all(comparisons.map(async (item) => {
+        const root = await getAnime(item.root.id, next);
+        return { root, series: scope === "series" ? await collectFranchise(root, next) : [root] };
+      }));
+      const [refreshedPrimary, refreshed] = await Promise.all([primaryRequest, comparisonRequest]);
+      if (refreshedPrimary.length) setSeries(refreshedPrimary);
       setComparisons(refreshed);
     } catch (err) { setError(err instanceof Error ? err.message : "Dub lookup failed."); }
     finally { setLoadingAnime(false); }

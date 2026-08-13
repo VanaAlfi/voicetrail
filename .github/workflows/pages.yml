@@ -28,6 +28,16 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir github-pages build
+      - name: Verify Tailwind CSS output
+        shell: bash
+        run: |
+          set -euo pipefail
+          css_file="$(find github-pages/dist/assets -maxdepth 1 -type f -name '*.css' -print -quit)"
+          test -n "$css_file"
+          test -s "$css_file"
+          grep -q '@layer theme' "$css_file"
+          grep -q '.overlap-character' "$css_file"
+          echo "Tailwind Vite CSS verified: $css_file ($(wc -c < "$css_file") bytes)"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
@@ -43,3 +53,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
