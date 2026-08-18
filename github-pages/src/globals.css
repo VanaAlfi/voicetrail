@@ -116,13 +116,13 @@ h1 { margin: 16px 0 17px; font-size: clamp(44px, 7vw, 78px); line-height: .98; l
 .actor-profile { min-width: 0; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 15px; text-decoration: none; }
 .actor-profile:hover .actor-name, .current-role a:hover, .credit-char a:hover, .overlap-actor:hover .overlap-name, .role-detail a:hover { color: var(--purple-dark); text-decoration: underline; }
 .actor-photo { width: 62px; height: 62px; border-radius: 14px; object-fit: cover; background: #e7e4ec; }
-.actor-name { font-weight: 760; letter-spacing: -.015em; }
-.actor-language { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.actor-name { display: block; font-weight: 760; letter-spacing: -.015em; }
+.actor-language { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
 .current-role { display: flex; align-items: center; gap: 10px; }
 .char-photo { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: #eee; }
 .current-role > span { display: block; min-width: 0; }
-.current-role .role-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
-.current-role .role-name { font-size: 14px; font-weight: 650; }
+.current-role .role-label { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
+.current-role .role-name { display: block; font-size: 14px; font-weight: 650; }
 .current-role .role-name > span, .credit-char > span { display: inline; }
 .current-role a, .credit-char a, .role-detail a { text-decoration: none; }
 .expand-label { border: 0; background: transparent; padding: 10px 2px; color: var(--purple-dark); font-size: 13px; font-weight: 700; white-space: nowrap; }
