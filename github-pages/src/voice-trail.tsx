@@ -35,6 +35,8 @@ const MAX_FILMOGRAPHY_CREDITS = 400;
 const FILMOGRAPHY_PAGE_SIZE = 25;
 const FILMOGRAPHY_PAGES = MAX_FILMOGRAPHY_CREDITS / FILMOGRAPHY_PAGE_SIZE;
 const STAFF_LANGUAGES = new Set(["JAPANESE", "ENGLISH", "KOREAN", "FRENCH", "GERMAN", "SPANISH", "PORTUGUESE"]);
+const SYR_VOICE_ACTOR_IDS = new Set([118738, 124165, 143219, 168031]);
+const SYR_VOICE_ACTOR_NAMES = new Set(["Shizuka Ishigami", "Juliet Simmons", "Ela Paul", "Natália Alves", "Sonia Petit"]);
 
 function delay(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -126,6 +128,7 @@ function title(anime: Anime) { return anime.title.english || anime.title.userPre
 function actorUrl(id: number) { return `https://anilist.co/staff/${id}`; }
 function characterUrl(character: { id: number; profileUrl?: string }) { return character.profileUrl || `https://anilist.co/character/${character.id}`; }
 function characterSource(character: Character) { return character.profileUrl ? "MyAnimeList" : "AniList"; }
+function isSyrVoiceActor(actor: Actor) { return SYR_VOICE_ACTOR_IDS.has(actor.id) || SYR_VOICE_ACTOR_NAMES.has(actor.name.full.replace(/\s+/g, " ").trim()); }
 function uniqueCharacters(actor: ActorRow) { return [...new Map(actor.appearances.map((appearance) => [appearance.character.id, appearance.character])).values()]; }
 
 export function VoiceTrail() {
@@ -366,7 +369,7 @@ function groupActors(animeList: AnimeDetail[]): ActorRow[] {
   const grouped = new Map<number, ActorRow>();
   for (const anime of animeList) for (const edge of anime.characters.edges) for (const actor of edge.voiceActors || []) {
     const row = grouped.get(actor.id) || { ...actor, appearances: [] };
-    const character: Character = actor.name.full === "Shizuka Ishigami" && edge.node.name.full === "Freya" ? {
+    const character: Character = isSyrVoiceActor(actor) && edge.node.id === 142533 ? {
       id: -116181,
       name: { full: "Syr Flova" },
       image: { large: "https://cdn.myanimelist.net/images/characters/7/508896.jpg" },
