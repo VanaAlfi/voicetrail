@@ -13,7 +13,7 @@ type Anime = {
 };
 
 type Actor = { id: number; name: { full: string }; image: { large: string }; languageV2?: string | null; favourites?: number | null };
-type Character = { id: number; name: { full: string }; image: { large: string }; favourites?: number | null };
+type Character = { id: number; name: { full: string }; image: { large: string }; favourites?: number | null; profileUrl?: string };
 type CastEdge = { role: "MAIN" | "SUPPORTING" | "BACKGROUND"; node: Character; voiceActors: Actor[] | null };
 type RelationEdge = { relationType: string; node: Anime };
 type AnimeDetail = Anime & { characters: { pageInfo: { hasNextPage: boolean }; edges: CastEdge[] }; relations: { edges: RelationEdge[] } };
@@ -124,7 +124,8 @@ async function fetchFilmography(actorId: number) {
 function pretty(value?: string | null) { return value ? value.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase()) : "Anime"; }
 function title(anime: Anime) { return anime.title.english || anime.title.userPreferred; }
 function actorUrl(id: number) { return `https://anilist.co/staff/${id}`; }
-function characterUrl(id: number) { return `https://anilist.co/character/${id}`; }
+function characterUrl(character: { id: number; profileUrl?: string }) { return character.profileUrl || `https://anilist.co/character/${character.id}`; }
+function characterSource(character: Character) { return character.profileUrl ? "MyAnimeList" : "AniList"; }
 function uniqueCharacters(actor: ActorRow) { return [...new Map(actor.appearances.map((appearance) => [appearance.character.id, appearance.character])).values()]; }
 
 export function VoiceTrail() {
@@ -346,14 +347,14 @@ export function VoiceTrail() {
                 <span><span className="actor-name">{actor.name.full}</span><span className="actor-language">{actor.languageV2 || pretty(language)}</span></span>
               </a>
               <span className="current-role">
-                <a href={characterUrl(current.character.id)} target="_blank" rel="noreferrer" aria-label={`${current.character.name.full} on AniList`}><img className="char-photo" src={current.character.image.large} alt={current.character.name.full} loading="lazy" decoding="async" /></a>
-                <span><span className="role-label">In this selection · {pretty(current.role)}</span><span className="role-name">{characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character.id)} target="_blank" rel="noreferrer">{character.name.full}</a></span>)}</span></span>
+                <a href={characterUrl(current.character)} target="_blank" rel="noreferrer" aria-label={`${current.character.name.full} on ${characterSource(current.character)}`}><img className="char-photo" src={current.character.image.large} alt={current.character.name.full} loading="lazy" decoding="async" /></a>
+                <span><span className="role-label">In this selection · {pretty(current.role)}</span><span className="role-name">{characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character)} target="_blank" rel="noreferrer">{character.name.full}</a></span>)}</span></span>
               </span>
               <button className="expand-label" onClick={() => toggleActor(actor)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} all roles for ${actor.name.full}`}>All roles <span className={`chevron ${isOpen ? "open" : ""}`}>⌄</span></button>
             </div>
             {isOpen && <div className="credits">{loadingActor === actor.id ? <div className="loading-row">Loading up to {MAX_FILMOGRAPHY_CREDITS} filmography credits…</div> : <>
               <div className="credits-title"><strong>Complete anime filmography</strong><span>{filtered.length} matching credits{limitedCredits[actor.id] ? ` · first ${MAX_FILMOGRAPHY_CREDITS} shown` : ""}</span></div>
-              {filtered.length ? <div className="credit-grid">{filtered.map((credit) => <div className="credit" key={credit.node.id}><img src={credit.node.coverImage.medium || credit.node.coverImage.large} alt={`${title(credit.node)} cover`} loading="lazy" decoding="async" /><div><div className="credit-anime">{title(credit.node)}</div><div className="credit-char">{credit.characters?.length ? credit.characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character.id)} target="_blank" rel="noreferrer">{character.name.full}</a></span>) : "Character role"}</div>{credit.characterRole && <span className="role-chip">{pretty(credit.characterRole)}</span>}</div><span className="year">{credit.node.startDate.year || "TBA"}</span></div>)}</div> : <div className="notice">No roles matched this filter.</div>}
+              {filtered.length ? <div className="credit-grid">{filtered.map((credit) => <div className="credit" key={credit.node.id}><img src={credit.node.coverImage.medium || credit.node.coverImage.large} alt={`${title(credit.node)} cover`} loading="lazy" decoding="async" /><div><div className="credit-anime">{title(credit.node)}</div><div className="credit-char">{credit.characters?.length ? credit.characters.map((character, index) => <span key={character.id}>{index > 0 && ", "}<a href={characterUrl(character)} target="_blank" rel="noreferrer">{character.name.full}</a></span>) : "Character role"}</div>{credit.characterRole && <span className="role-chip">{pretty(credit.characterRole)}</span>}</div><span className="year">{credit.node.startDate.year || "TBA"}</span></div>)}</div> : <div className="notice">No roles matched this filter.</div>}
             </>}</div>}
           </article>;
         })}</div><p className="footer-note">Credits and franchise relationships come from AniList. Complete filmographies may take a moment for prolific actors.</p></>}
@@ -365,7 +366,14 @@ function groupActors(animeList: AnimeDetail[]): ActorRow[] {
   const grouped = new Map<number, ActorRow>();
   for (const anime of animeList) for (const edge of anime.characters.edges) for (const actor of edge.voiceActors || []) {
     const row = grouped.get(actor.id) || { ...actor, appearances: [] };
-    if (!row.appearances.some((a) => a.anime.id === anime.id && a.character.id === edge.node.id)) row.appearances.push({ anime, character: edge.node, role: edge.role });
+    const character: Character = actor.name.full === "Shizuka Ishigami" && edge.node.name.full === "Freya" ? {
+      id: -116181,
+      name: { full: "Syr Flova" },
+      image: { large: "https://cdn.myanimelist.net/images/characters/7/508896.jpg" },
+      favourites: 0,
+      profileUrl: "https://myanimelist.net/character/116181/Syr_Flova",
+    } : edge.node;
+    if (!row.appearances.some((a) => a.anime.id === anime.id && a.character.id === character.id)) row.appearances.push({ anime, character, role: edge.role });
     grouped.set(actor.id, row);
   }
   const roleRank: Record<string, number> = { MAIN: 0, SUPPORTING: 1, BACKGROUND: 2 };
@@ -392,7 +400,7 @@ function Comparison({ primary, comparisons, overlap, scope, primaryCount, remove
       <div className="role-pair">{[actor, ...matches].map((row, index) => {
         const characters = uniqueCharacters(row);
         const firstCharacter = characters[0];
-        return <div key={selections[index].root.id}><a href={characterUrl(firstCharacter.id)} target="_blank" rel="noreferrer" aria-label={`${firstCharacter.name.full} on AniList`}><img className="overlap-character" src={firstCharacter.image.large} alt={firstCharacter.name.full} loading="lazy" decoding="async" /></a><div className="role-detail"><span>In {title(selections[index].root)}</span><strong>{characters.map((character, characterIndex) => <span className="character-link-wrap" key={character.id}>{characterIndex > 0 && ", "}<a href={characterUrl(character.id)} target="_blank" rel="noreferrer">{character.name.full}</a></span>)}</strong></div></div>;
+        return <div key={selections[index].root.id}><a href={characterUrl(firstCharacter)} target="_blank" rel="noreferrer" aria-label={`${firstCharacter.name.full} on ${characterSource(firstCharacter)}`}><img className="overlap-character" src={firstCharacter.image.large} alt={firstCharacter.name.full} loading="lazy" decoding="async" /></a><div className="role-detail"><span>In {title(selections[index].root)}</span><strong>{characters.map((character, characterIndex) => <span className="character-link-wrap" key={character.id}>{characterIndex > 0 && ", "}<a href={characterUrl(character)} target="_blank" rel="noreferrer">{character.name.full}</a></span>)}</strong></div></div>;
       })}</div>
     </article>)}</div> : <div className="notice">No actors appear in both selected casts for this dub.</div>}
   </div>;
